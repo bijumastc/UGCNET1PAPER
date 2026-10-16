@@ -1,0 +1,21 @@
+# Secrets: never upload (paste them into Streamlit Cloud instead)
+.streamlit/secrets.toml
+*.json.key
+service_account*.json
+# any .json (e.g. the Google service-account key) except the question bundle
+*.json
+!bundle/library.json
+
+# Your papers, progress, OCR cache and exports stay on your computer
+*.pdf
+papers/
+.p1_trainer/
+paper1_sorted*
+*.xlsx
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
