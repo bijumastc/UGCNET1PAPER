@@ -4,7 +4,9 @@
 
 Reads the library made by scan_papers.py (plus your corrections) and writes, inside the app folder:
     bundle/library.json   - every question, its unit/topic/format and its verified answer
-    bundle/img/*.png      - each scanned NTA question cut from its page (small grey images)
+    bundle/images_1.zip   - the scanned NTA questions cut from their pages (small grey pictures),
+    bundle/images_2.zip     packed into a few zip files of at most ~20 MB each, so the bundle is only a
+    ...                     handful of files (GitHub's website takes 100 files / 25 MB per file per upload)
 The online app uses only this bundle: no PDFs, no OCR, nothing to install for students.
 Run it again whenever you add papers, then upload (push) the app folder to GitHub.
 """
@@ -12,6 +14,8 @@ import hashlib
 import json
 import shutil
 import sys
+import tempfile
+import zipfile
 from pathlib import Path
 
 APP = Path(__file__).resolve().parent
@@ -47,7 +51,9 @@ def main():
     out = APP / "bundle"
     if out.exists():
         shutil.rmtree(out)
-    (out / "img").mkdir(parents=True)
+    out.mkdir(parents=True)
+    tmp = Path(tempfile.mkdtemp(prefix="p1_bundle_"))
+    (tmp / "img").mkdir()
     docs, made = {}, 0
     for i, q in enumerate(qs):
         q.pop("source_path", None)
@@ -60,7 +66,7 @@ def main():
                 files = []
                 for page, y0, y1 in regions:
                     name = hashlib.sha1(f"{q['source_file']}|{page}|{y0:.4f}|{y1:.4f}".encode()).hexdigest()[:16] + ".png"
-                    path = out / "img" / name
+                    path = tmp / "img" / name
                     if path.exists() or crop(docs, str(pdf), page, y0, y1, path):
                         files.append(f"img/{name}")
                         made += 1
@@ -70,10 +76,29 @@ def main():
     lib["questions"] = qs
     lib["bundle"] = True
     (out / "library.json").write_text(json.dumps(lib), encoding="utf-8")
+    pack(tmp / "img", out)
+    shutil.rmtree(tmp, ignore_errors=True)
     size = sum(p.stat().st_size for p in out.rglob("*") if p.is_file()) / 1e6
     ok = sum(q["status"] == "ok" for q in qs)
     print(f"\nBundle ready: {len(qs)} questions ({ok} verified), {made} images, {size:.1f} MB in {out}")
+    files = sorted(p.name for p in out.iterdir())
+    print(f"The bundle folder has {len(files)} files: {', '.join(files)}")
     print("Next: upload the app folder (with 'bundle') to your private GitHub repository.")
+
+
+def pack(img_dir: Path, out: Path, max_bytes: int = 20 * 1024 * 1024):
+    """Put the pictures into images_1.zip, images_2.zip, … (PNGs are already compressed: store them)."""
+    n, z, size = 0, None, 0
+    for f in sorted(img_dir.glob("*.png")):
+        if z is None or size + f.stat().st_size > max_bytes:
+            if z:
+                z.close()
+            n += 1
+            z, size = zipfile.ZipFile(out / f"images_{n}.zip", "w", zipfile.ZIP_STORED), 0
+        z.write(f, f"img/{f.name}")
+        size += f.stat().st_size
+    if z:
+        z.close()
 
 
 if __name__ == "__main__":

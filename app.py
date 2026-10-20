@@ -180,6 +180,9 @@ st.sidebar.markdown(f"**{who}**")
 if getattr(store, "open_error", None) and IS_TEACHER:
     st.sidebar.error(store.open_error)
 
+if SECRETS.get("sheet_url") and not BUNDLE.exists() and IS_TEACHER:
+    st.sidebar.error("No question bundle found online. On your PC run `python make_bundle.py ..` in the app "
+                     "folder, then upload the `bundle` folder (2–3 files) to GitHub next to app.py.")
 if MODE == "local" and IS_TEACHER:
     with st.sidebar.expander("📂 Papers folder", expanded=not lib["questions"]):
         f_in = st.text_input("Folder", ss.folder)

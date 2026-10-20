@@ -142,7 +142,8 @@ Good to know:
 
 ## Part 4: Your secrets file
 
-In the app folder, `.streamlit/secrets.toml.example` shows the format. Fill it in (in Notepad) like this:
+In the app folder, `.streamlit/secrets.toml.example` shows the format. Fill it in (in Notepad) like this.
+**Order matters: the Google key goes last.**
 
 ```toml
 sheet_url = "https://docs.google.com/spreadsheets/d/XXXXXXXX/edit"
@@ -151,25 +152,24 @@ teacher_email = "you@gmail.com"          # optional: logs you in automatically o
 gemini_api_key = "AIza..."              # optional
 groq_api_key = "gsk_..."                # optional: free AI tutor keys (Part 3b)
 nvidia_api_key = "nvapi-..."
-cerebras_api_key = "csk-..."
 openrouter_api_key = "sk-or-..."
 mistral_api_key = "..."
 
-[gcp_service_account]
-# copy each value from the JSON file you downloaded in Part 2b
-type = "service_account"
-project_id = "paper1-trainer"
-private_key_id = "…"
-private_key = "-----BEGIN PRIVATE KEY-----\n…\n-----END PRIVATE KEY-----\n"
-client_email = "trainer-bot@paper1-trainer.iam.gserviceaccount.com"
-client_id = "…"
-auth_uri = "https://accounts.google.com/o/oauth2/auth"
-token_uri = "https://oauth2.googleapis.com/token"
-auth_provider_x509_cert_url = "https://www.googleapis.com/oauth2/v1/certs"
-client_x509_cert_url = "…"
+gcp_service_account_json = '''
+{
+  "type": "service_account",
+  "project_id": "paper1-trainer",
+  ... the whole downloaded JSON file, pasted exactly as it is ...
+}
+'''
 ```
 
-Copy `private_key` **exactly** as it is in the JSON, including the `\n` parts.
+Open the downloaded `.json` key file in Notepad, select everything (Ctrl+A), copy, and paste it between the two
+`'''` lines (three **single** quotes). Nothing in it needs changing.
+
+(The older way also works: a `[gcp_service_account]` heading followed by lines like `type = "service_account"`,
+one per JSON field, without colons, commas or braces. Use one way, not both.)
+
 **Never upload this file to GitHub.** The `.gitignore` already blocks `secrets.toml`; you will paste it into
 Streamlit instead (Part 6).
 
@@ -189,6 +189,8 @@ Easiest without commands: **GitHub Desktop** (<https://desktop.github.com>).
 4. In GitHub Desktop: write a summary like "First upload" → **Commit to main** → **Push origin**.
 
 Check on github.com that you see `app.py`, the `p1` folder and the `bundle` folder, and **no** `secrets.toml`.
+The `bundle` folder holds only 2–3 files (`library.json` and `images_1.zip`, maybe `images_2.zip`), so it also
+uploads fine through the GitHub website (**Add file → Upload files**, drag the `bundle` folder in).
 
 ---
 

@@ -106,3 +106,25 @@ def test_block_units_follow_paper_order():
         qs.append({"qno": n, "unit": None, "unit_guess": guess})
     assert block_units(qs) == dict(enumerate(order))
     assert block_units([{"qno": n, "unit": "U1"} for n in range(1, 51)]) is None   # not a block layout
+
+
+def test_failed_read_is_retried(tmp_path, monkeypatch):
+    import json as _json
+
+    from p1 import library as L
+
+    pdf = tmp_path / "paper.pdf"
+    pdf.write_bytes(b"%PDF-1.4 not really")
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    (cache / f"{L._sha(pdf)}_v{L.PARSER_VERSION}.json").write_text(_json.dumps(
+        {"file": "paper.pdf", "role": "error", "error": "ModuleNotFoundError: No module named 'pdfplumber'"}))
+    calls = []
+
+    def fake_read(*a, **k):
+        calls.append(1)
+        raise RuntimeError("still broken")
+    monkeypatch.setattr(L, "read_pdf", fake_read)
+    rec = L.extract_file(pdf, cache)
+    assert calls and "still broken" in rec["error"]                      # tried again, not the old error
+    assert not (cache / f"{L._sha(pdf)}_v{L.PARSER_VERSION}.json").exists()   # the old failure is forgotten

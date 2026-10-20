@@ -103,3 +103,17 @@ def test_daily_challenge_is_the_same_for_everyone_today():
     a, b = daily_keys(C), daily_keys(C)
     assert a == b and len(a) == 10
     assert all(G.from_key(k) for k in a)
+
+
+def test_google_key_can_be_pasted_as_json():
+    import tomllib
+
+    from p1.store import service_account_info
+
+    s = tomllib.loads('sheet_url = "u"\ngroq_api_key = "g"\ngcp_service_account_json = \'\'\'\n'
+                      '{"type": "service_account", "private_key": "-----BEGIN-----\\nAB\\n-----END-----\\n",'
+                      ' "client_email": "bot@x.iam.gserviceaccount.com"}\n\'\'\'\n')
+    info = service_account_info(s)
+    assert info["client_email"].startswith("bot@") and "\nAB\n" in info["private_key"]
+    assert service_account_info({"gcp_service_account": {"type": "service_account"}})["type"] == "service_account"
+    assert service_account_info({}) is None

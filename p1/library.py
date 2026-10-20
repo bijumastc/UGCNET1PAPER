@@ -88,7 +88,10 @@ def extract_file(path: Path, cache_dir: Path, progress=None) -> dict:
     for v in (PARSER_VERSION, 9):          # v9 files (earlier version) have the same format: reuse them
         old = cache_dir / f"{sha}_v{v}.json"
         if old.exists():
-            return json.loads(old.read_text(encoding="utf-8"))
+            rec = json.loads(old.read_text(encoding="utf-8"))
+            if rec.get("role") != "error":            # a failed read is always tried again
+                return rec
+            old.unlink(missing_ok=True)
 
     rec = {"file": path.name, "path": str(path), "sha": sha, "role": None, "questions": [], "issues": [],
            "key": None, "kind": None, "error": None, "session": None, "memory_based": False}
@@ -123,7 +126,7 @@ def extract_file(path: Path, cache_dir: Path, progress=None) -> dict:
                     rec["role"] = "unknown"
     except Exception as e:  # keep going with other files
         rec.update(role="error", error=f"{type(e).__name__}: {e}")
-    if not (rec.get("error") or "").count("not enough memory"):
+    if rec["role"] != "error" and not (rec.get("error") or "").count("not enough memory"):
         cache.write_text(json.dumps(rec), encoding="utf-8")   # retried next scan if pages were skipped
     return rec
 

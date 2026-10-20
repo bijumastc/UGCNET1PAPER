@@ -28,9 +28,31 @@ def source_path(C, q) -> str | None:
     return str(hits[0]) if hits else None
 
 
+@st.cache_resource(show_spinner=False)
+def _bundle_zips(bundle_dir: str) -> dict:
+    """Which images_N.zip holds each picture (the bundle packs pictures into a few zip files)."""
+    import zipfile
+
+    index = {}
+    for zp in sorted(Path(bundle_dir).glob("images_*.zip")):
+        z = zipfile.ZipFile(zp)
+        for name in z.namelist():
+            index[name] = z
+    return index
+
+
+def _bundle_image(app_dir: str, rel: str):
+    bundle = Path(app_dir) / "bundle"
+    loose = bundle / rel
+    if loose.exists():                                # older bundles: a plain img/ folder
+        return str(loose)
+    z = _bundle_zips(str(bundle)).get(rel)
+    return z.read(rel) if z else None
+
+
 def _images(C, q, field_img, field_regions):
     if q.get(field_img):                              # cloud bundle: pre-cut images
-        return [str(Path(C.app_dir) / "bundle" / p) for p in q[field_img]]
+        return [im for im in (_bundle_image(C.app_dir, p) for p in q[field_img]) if im is not None]
     path = source_path(C, q)
     if path and q.get(field_regions):
         return crop_regions(path, q[field_regions], Path(C.folder) / ".p1_trainer" / "crops")

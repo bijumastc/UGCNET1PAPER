@@ -427,6 +427,18 @@ class SheetStore:
 _FAKE = {}
 
 
+def service_account_info(secrets: dict) -> dict | None:
+    """The Google key from Secrets, in either form:
+         [gcp_service_account]  with  key = "value"  lines (TOML), or
+         gcp_service_account_json = '''{ ...the downloaded JSON file pasted as it is... }'''"""
+    raw = secrets.get("gcp_service_account_json")
+    if raw:
+        return json.loads(raw) if isinstance(raw, str) else dict(raw)
+    if "gcp_service_account" in secrets:
+        return dict(secrets["gcp_service_account"])
+    return None
+
+
 def open_store(folder, secrets=None):
     """SheetStore when Google credentials are in Streamlit secrets, else LocalStore."""
     import os
@@ -441,8 +453,9 @@ def open_store(folder, secrets=None):
             _FAKE["store"] = SheetStore({}, "https://docs.google.com/fake", client=FakeClient())
         return _FAKE["store"]
     try:
-        if secrets and "gcp_service_account" in secrets and secrets.get("sheet_url"):
-            return SheetStore(dict(secrets["gcp_service_account"]), secrets["sheet_url"])
+        info = service_account_info(secrets or {})
+        if info and secrets.get("sheet_url"):
+            return SheetStore(info, secrets["sheet_url"])
     except Exception as e:
         st_error = f"Could not open the Google Sheet ({type(e).__name__}: {e}). Using local storage."
         store = LocalStore(folder)
