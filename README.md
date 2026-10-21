@@ -7,7 +7,7 @@ you can run for a whole class online.
 questions, ♾️ unlimited generated practice with worked solutions (maths, logic, data interpretation, ICT),
 teacher-approved AI questions for the theory units, diagnostic and full mock tests (5 questions per unit,
 as in the syllabus), 🧪 simulators (Type I/II errors with a live power graph, a syllogism tester with Venn
-diagrams, the square of opposition), a 🤖 AI tutor on free AI services (Groq, NVIDIA, Cerebras, OpenRouter, Mistral, with Gemini as backup), a "next focus" report, and a game layer: points, ranks, combos, daily missions, a ⚡ Speed round, a 🏆 Daily class challenge
+diagrams, the square of opposition), a 🤖 AI tutor on free AI services (Groq, NVIDIA, Cerebras, OpenRouter, Mistral, with Gemini as backup) that checks facts on trusted websites (Tavily) and shows its sources, a "next focus" report, and a game layer: points, ranks, combos, daily missions, a ⚡ Speed round, a 🏆 Daily class challenge
 (same 10 questions for everyone) and a weekly leaderboard, plus smiley encouragement, streaks and badges.
 
 **For you (teacher):** student logins (ID + PIN), a class dashboard (status, projected scores, unit map,

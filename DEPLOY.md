@@ -113,6 +113,17 @@ Each key takes about 2 minutes. None of the free ones asks for a card.
 3. On the free plan Mistral may use requests to train its models. Students' tutor questions carry no names, but
    you can switch Mistral off in Class settings if you prefer.
 
+**3c. Tavily (fact-checking web search, recommended)**
+1. Open <https://app.tavily.com> → sign up (Google works). No card needed; the free plan gives 1,000 searches
+   a month.
+2. Your API key is shown on the dashboard (starts with `tvly-`). Copy it.
+3. Add `tavily_api_key = "tvly-..."` to your secrets.
+For fact-based topics (teaching, research, communication, ICT, environment, higher education, Indian logic) the
+tutor first searches trusted sites (UGC, NTA, Ministry of Education, UNESCO, UN, Wikipedia…), answers from what
+it finds and shows the links under its answer. Maths and logic questions are not searched. A class-wide daily
+limit (default 30, in ⚙️ Class settings) keeps you inside the free plan; repeated questions cost nothing.
+The AI question writer uses the same facts when it writes theory questions.
+
 **4. Gemini (paid, already have it)**: the same `gemini_api_key` as Part 3. It is used only when all
 the free ones are busy. Turn it off in **⚙️ Class settings → AI tutor → Gemini → Use** if you prefer.
 
@@ -154,6 +165,7 @@ groq_api_key = "gsk_..."                # optional: free AI tutor keys (Part 3b)
 nvidia_api_key = "nvapi-..."
 openrouter_api_key = "sk-or-..."
 mistral_api_key = "..."
+tavily_api_key = "tvly-..."             # optional: fact-checking web search (Part 3c)
 
 gcp_service_account_json = '''
 {
