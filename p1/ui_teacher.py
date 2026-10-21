@@ -14,6 +14,7 @@ from . import llm
 from . import motivate as M
 from . import records as R
 from . import ui_games as GM
+from . import websearch as WS
 from . import ui_tutor as TU
 from .library import STATUS_TEXT
 from .patterns import pattern_name
@@ -304,14 +305,27 @@ def page_ai(C):
         n = c5.slider("How many", 3, 10, 5)
         examples = [q for q in real if q["pattern"] == pat][:4] + [q for q in real if q["pattern"] != pat][:2]
         st.caption(f"Will use {len(examples)} real questions as style examples.")
+        ground = WS.enabled(C.secrets, C.store) and WS.needs_facts(unit, subtopic_name(sub))
+        if ground:
+            st.caption("🔎 Facts will be checked on trusted websites first (Tavily), and the AI is told to use them.")
         if st.button("Write questions", type="primary"):
             reals = [q for q in C.QUESTIONS if q.get("unit") == unit]
+            facts = ""
+            if ground:
+                try:
+                    with st.spinner("🔎 Gathering facts from trusted websites…"):
+                        facts = WS.facts_for_writer(WS.search(C.store, WS.api_key(C.secrets, C.store),
+                                                              f"{subtopic_name(sub)} {unit_name(unit)} key facts",
+                                                              max_results=5))
+                except WS.SearchError as e:
+                    st.caption(f"Web check skipped: {e}")
             with st.spinner("The AI is writing…"):
                 try:
                     if engine == "Gemini":
-                        new, problems = AI.generate(key, C.gemini_model, unit, sub, pat, n, level, examples, reals)
+                        new, problems = AI.generate(key, C.gemini_model, unit, sub, pat, n, level, examples, reals,
+                                                    facts)
                     else:
-                        new, problems = AI.generate_llama(lcfg, unit, sub, pat, n, level, examples, reals)
+                        new, problems = AI.generate_llama(lcfg, unit, sub, pat, n, level, examples, reals, facts)
                 except Exception as e:
                     st.error(f"The AI request failed: {type(e).__name__}: {e}")
                     new, problems = [], []
@@ -499,6 +513,40 @@ def page_class_settings(C):
             with st.spinner("Testing each service…"):
                 st.dataframe(pd.DataFrame(llm.test_each(cfg)), hide_index=True, width="stretch")
             st.caption("❌ on one service is fine as long as another shows ✅; the backup takes over.")
+
+    st.subheader("🔎 Fact-checking with web search (Tavily)")
+    st.caption("For fact-based topics (teaching, research, communication, ICT, environment, higher education), the "
+               "tutor first searches trusted websites and answers from them, with links. Maths and logic are not "
+               "searched. Free plan: 1,000 searches a month at https://app.tavily.com (no card).")
+    w_on = st.toggle("Check facts on the web", value=s.get("class:web_on", "1") == "1")
+    w_lim = st.slider("Web searches per day for the whole class", 5, 100, WS.daily_limit(s), step=5,
+                      help="About 30 a day keeps you inside the free 1,000 a month. Repeated questions reuse "
+                           "earlier results and cost nothing.")
+    if C.mode == "local":
+        w_key = st.text_input("Tavily API key (starts with tvly-)", s.get("class:tavily_api_key", ""), type="password")
+    else:
+        w_key = None
+        st.caption("Online: put `tavily_api_key` in Secrets. " +
+                   ("Found ✅" if C.secrets.get("tavily_api_key") else "Not found."))
+    st.caption(f"Used today: {WS.used_today(s)} of {WS.daily_limit(s)}")
+    c1, c2 = st.columns(2)
+    if c1.button("Save web search settings"):
+        s.set("class:web_on", "1" if w_on else "0")
+        s.set("class:web_daily_limit", w_lim)
+        if w_key is not None:
+            s.set("class:tavily_api_key", w_key)
+        st.success("Saved.")
+    if c2.button("🔌 Test web search"):
+        k = w_key if w_key else WS.api_key(C.secrets, s)
+        if not k:
+            st.warning("Paste the key and press Save first.")
+        else:
+            try:
+                res = WS._call(k, "SWAYAM MOOC platform India launched", 3, WS.TRUSTED, 15)
+                st.success(f"✅ Working: {len(res)} results.")
+                st.markdown(WS.sources_md(res))
+            except WS.SearchError as e:
+                st.error(str(e))
 
     st.subheader("Data")
     st.write(f"Stored in: {'Google Sheet' if s.kind == 'sheet' else 'this computer'}: `{s.link()}`")

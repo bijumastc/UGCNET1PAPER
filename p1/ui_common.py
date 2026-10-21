@@ -59,6 +59,29 @@ def _images(C, q, field_img, field_regions):
     return []
 
 
+_KEEP_BREAK = None
+
+
+def reflow(text: str) -> str:
+    """Join lines that a PDF wrapped in mid-sentence; keep list items (A., (1), i., Statement I…) on their own lines."""
+    import re
+
+    global _KEEP_BREAK
+    if _KEEP_BREAK is None:
+        _KEEP_BREAK = re.compile(r"^\s*(?:\(?[A-Ea-e1-9]\s*[\.\)]|\([ivxIVX]+\)|[ivxIVX]+[\.\)]\s|list\b|statement\b|"
+                                 r"assertion\b|reason\b|choose\b|select\b|codes?\b|[-•*]\s)", re.I)
+    out = []
+    for line in (text or "").splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        if out and not out[-1].endswith((":", "?")) and not _KEEP_BREAK.match(s):
+            out[-1] += " " + s
+        else:
+            out.append(s)
+    return "\n".join(out)
+
+
 def show_question(C, q, show_group=True):
     """The original picture for scanned NTA questions, text otherwise."""
     if show_group and (q.get("group_text") or q.get("group_img") or q.get("group_regions")):
@@ -68,13 +91,16 @@ def show_question(C, q, show_group=True):
                 for im in imgs:
                     st.image(im, width="stretch")
             else:
-                st.markdown(q["group_text"])
+                st.markdown(reflow(q["group_text"]).replace("\n", "  \n"))
     imgs = _images(C, q, "img", "regions") if q.get("display") == "image" else []
     if imgs:
         for im in imgs:
             st.image(im, width="stretch")
     else:
-        st.markdown("#### " + q["text"].replace("\n", "  \n"))
+        first, _, rest = reflow(q["text"]).partition("\n")
+        st.markdown("#### " + first)
+        if rest:
+            st.markdown(rest.replace("\n", "  \n"))
 
 
 def has_option_text(q) -> bool:

@@ -18,7 +18,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass, field
 
-PARSER_VERSION = 10
+PARSER_VERSION = 11
 OCR_SCALE = 2.0
 
 DEVANAGARI = re.compile(r"[ऀ-ॿ]")
@@ -51,6 +51,18 @@ NTA_META = re.compile(
 # coaching / plain-text layout
 G_QSTART = re.compile(r"^\s*(?:(?:Q\s*\.\s*|Ques(?:tion)?\s*(?:No\.?\s*)?)(\d{1,3})\s*[\.\):]?|Q(\d{1,3})\s*[\.\):]|(\d{1,3})\s*[\.\)])\s*(.*)$", re.I)
 G_ANSWER = re.compile(r"^\s*(?:correct\s+)?(?:ans(?:wer)?|key|correct\s+option)\s*[:\-\.]?\s*\(?\s*([1-4A-Da-d])\s*\)?\s*\.?\s*$", re.I)
+# start of a passage / data set shared by the next few questions (coaching & memory-based papers)
+G_PASSAGE = re.compile(
+    r"^\s*(?:(?:comprehension\s+)?passage\b|comprehension\b|directions?\b|"
+    r"(?:read|study|consider|go\s+through|examine|observe|refer\s+to)\b.{0,80}?\b"
+    r"(?:passage|paragraph|table|data|chart|graph|information|text|extract)\b|"
+    r"(?:answer|questions?)\b.{0,40}?\(?\s*\d{1,2}\s*(?:-|–|to)\s*\d{1,2}\s*\)?)", re.I)
+G_PASSAGE_STRONG = re.compile(
+    r"passage|comprehension|direction|\d{1,2}\s*(?:-|–|to)\s*\d{1,2}|"
+    r"(?:following|given|below)\b.{0,30}?\b(?:table|chart|graph|data)", re.I)
+G_PASSAGE_HEAD = re.compile(r"^\s*(?:(?:comprehension\s+)?passage|comprehension|directions?)\b\s*[\d:\-–.(]*\s*$|"
+                            r"^\s*read\s+the\s+(?:following|given)\s+passage", re.I)
+G_RANGE = re.compile(r"\b(\d{1,2})\s*(?:-|–|to)\s*(\d{1,2})\b")
 G_SOL = re.compile(r"^\s*(sol(?:ution)?|explanation|exp)\s*[\.:\-]", re.I)
 G_OPT = {
     "paren": re.compile(r"^\s*\(\s*([1-4A-Da-d])\s*\)\s*(.+)$"),
@@ -542,7 +554,8 @@ def parse_nta(lines: list, from_ocr: set, qno_qid: dict) -> tuple[list[RawQuesti
 def _option_style(lines: list[str]) -> str:
     paren = sum(1 for l in lines if re.match(r"^\s*\(\s*[1-4A-Da-d]\s*\)", l))
     dot = sum(1 for l in lines if re.match(r"^\s*[1-4][\.\)]\s", l))
-    if paren >= 8:
+    letter = sum(1 for l in lines if re.match(r"^\s*[A-Da-d][\.\)]\s", l))
+    if paren >= 8 or (paren >= 2 and paren >= dot and paren >= letter):
         return "paren"
     return "dot" if dot >= 8 else "letter"
 
@@ -553,9 +566,10 @@ def parse_generic(lines: list[tuple[int, str]]) -> tuple[list[RawQuestion], list
     qs: list[RawQuestion] = []
     cur: RawQuestion | None = None
     expected = None
-    mode = "stem"          # stem | options | after_answer | explanation
+    mode = "stem"          # stem | options | after_answer | explanation | passage
     carry: list[str] = []  # text after an answer that is not a solution: preamble for the next question(s)
     shared: str | None = None
+    passage: dict | None = None     # {"text", "lo", "hi", "left"}: a passage shared by the next questions
 
     def close():
         nonlocal cur
@@ -572,20 +586,46 @@ def parse_generic(lines: list[tuple[int, str]]) -> tuple[list[RawQuestion], list
             option_like = (style == "dot" and not prefixed and cur is not None and mode in ("stem", "options")
                            and len(cur.options) < 4 and n == len(cur.options) + 1)
             jump_ok = prefixed and expected is not None and expected < n <= expected + 3 and mode != "stem"
+            if mode == "passage" and expected is not None and n == expected:
+                option_like = False
             if not option_like and (expected is None or n == expected or jump_ok):
                 close()
-                if carry:
+                if mode == "passage" and carry:           # the passage just read belongs to what follows
+                    text = "\n".join(carry)
+                    rng = G_RANGE.search(carry[0])
+                    lo, hi = (int(rng.group(1)), int(rng.group(2))) if rng else (n, None)
+                    if hi is not None and not (lo <= n <= hi and hi - lo <= 9):
+                        lo, hi = n, None
+                    passage = {"text": text, "lo": lo, "hi": hi, "left": 5, "id": f"p{n}"}
+                    carry = []
+                elif carry:
                     shared = "\n".join(carry)
                     carry = []
                 cur = RawQuestion(qno=n, text=rest, pages=[pno])
-                if shared and mode != "stem":
-                    cur.group_text = shared
+                if passage and (n <= passage["hi"] if passage["hi"] is not None else passage["left"] > 0):
+                    cur.group_text, cur.group_id = passage["text"], passage["id"]
+                    passage["left"] -= 1
+                else:
+                    passage = None
+                    if shared and mode != "stem":
+                        cur.group_text = shared
                 expected, mode = n + 1, "stem"
                 continue
-        if cur is None:
+        if cur is None and mode != "passage":
+            if G_PASSAGE.match(line):
+                mode, carry = "passage", [line]
+            continue
+        if mode == "passage":
+            carry.append(line)
             continue
         if pno not in cur.pages:
             cur.pages.append(pno)
+
+        # a new passage starts (after the options / answer / explanation of the previous question)
+        if ((mode != "stem" and G_PASSAGE.match(line) and G_PASSAGE_STRONG.search(line)) or G_PASSAGE_HEAD.match(line)) \
+                and not opt_re.match(line):
+            mode, carry, shared, passage = "passage", [line], None, None
+            continue
 
         m_a = G_ANSWER.match(line)
         if m_a:

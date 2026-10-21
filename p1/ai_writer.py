@@ -36,7 +36,8 @@ FORMAT_RULES = {
 }
 
 
-def build_prompt(unit: str, subtopic: str, pattern: str, n: int, level: int, examples: list[dict]) -> str:
+def build_prompt(unit: str, subtopic: str, pattern: str, n: int, level: int, examples: list[dict],
+                 facts: str = "") -> str:
     ex = "\n\n".join(f"Example {i + 1}:\n{e['text'][:700]}" + (
         "\nOptions: " + " | ".join(e["options"]) if len(e.get("options") or []) == 4 else "")
         for i, e in enumerate(examples[:6])) or "(no examples available)"
@@ -53,7 +54,7 @@ Here are real past exam questions on this topic. Match their style and level, bu
 or reuse their exact facts in the same form:
 
 {ex}
-
+{("Reference facts from trusted websites (use only facts supported here or that you are certain of):" + chr(10) + facts + chr(10)) if facts else ""}
 Rules:
 - Write {n} NEW questions. Every fact must be correct and well established. If you are not sure of a fact,
   date, name or number, choose a different fact. Never invent people, books, laws, reports or dates.
@@ -105,23 +106,23 @@ def validate(item: dict, real_questions: list[dict]) -> str | None:
 
 
 def generate(api_key: str, model: str, unit: str, subtopic: str, pattern: str, n: int, level: int,
-             examples: list[dict], real_questions: list[dict]) -> tuple[list[dict], list[str]]:
+             examples: list[dict], real_questions: list[dict], facts: str = "") -> tuple[list[dict], list[str]]:
     """Ask Gemini for questions. Returns (rows ready to save as 'pending', problems)."""
     from google import genai
     from google.genai import types
 
     client = genai.Client(api_key=api_key)
     resp = client.models.generate_content(
-        model=model, contents=build_prompt(unit, subtopic, pattern, n, level, examples),
+        model=model, contents=build_prompt(unit, subtopic, pattern, n, level, examples, facts),
         config=types.GenerateContentConfig(temperature=0.7, response_mime_type="application/json"))
     return _rows_from(_parse(resp.text or "[]"), unit, subtopic, pattern, level, model, real_questions)
 
 
-def generate_llama(cfg: dict, unit, subtopic, pattern, n, level, examples, real_questions):
+def generate_llama(cfg: dict, unit, subtopic, pattern, n, level, examples, real_questions, facts: str = ""):
     """Same as generate(), using the free AI services (Groq, Cerebras, OpenRouter) through llm.chat."""
     from . import llm
 
-    prompt = build_prompt(unit, subtopic, pattern, n, level, examples).replace(
+    prompt = build_prompt(unit, subtopic, pattern, n, level, examples, facts).replace(
         "Return ONLY a JSON array. Each element:", 'Return ONLY a JSON object {"questions": [...]}. Each element:')
     text = llm.chat(cfg, [{"role": "user", "content": prompt}], temperature=0.7, max_tokens=4000, json_mode=True,
                     timeout=60)

@@ -85,7 +85,7 @@ def _looks_like_key_name(name: str) -> bool:
 def extract_file(path: Path, cache_dir: Path, progress=None) -> dict:
     sha = _sha(path)
     cache = cache_dir / f"{sha}_v{PARSER_VERSION}.json"
-    for v in (PARSER_VERSION, 9):          # v9 files (earlier version) have the same format: reuse them
+    for v in (PARSER_VERSION,):            # page OCR is cached separately, so re-reading a paper is quick
         old = cache_dir / f"{sha}_v{v}.json"
         if old.exists():
             rec = json.loads(old.read_text(encoding="utf-8"))
@@ -126,7 +126,8 @@ def extract_file(path: Path, cache_dir: Path, progress=None) -> dict:
                     rec["role"] = "unknown"
     except Exception as e:  # keep going with other files
         rec.update(role="error", error=f"{type(e).__name__}: {e}")
-    if rec["role"] != "error" and not (rec.get("error") or "").count("not enough memory"):
+    temporary = any(w in (rec.get("error") or "") for w in ("not enough memory", "Tesseract"))
+    if rec["role"] != "error" and not temporary:       # retried next scan (e.g. after installing Tesseract)
         cache.write_text(json.dumps(rec), encoding="utf-8")   # retried next scan if pages were skipped
     return rec
 
@@ -139,6 +140,16 @@ def build_library(folder: str | Path, progress=None, log=None) -> dict:
     cache_dir.mkdir(parents=True, exist_ok=True)
     files = sorted(p for p in folder.rglob("*") if p.is_file() and p.suffix.lower() in (".pdf", ".txt", ".csv")
                    and DATA_DIR not in p.parts and not _skip_name(p.name))
+    seen, unique = {}, []
+    for p in files:                       # the same PDF saved twice (e.g. "… - Copy.pdf") is read once
+        h = _sha(p)
+        if h in seen:
+            if log:
+                log(f"Skipping {p.name}: same file as {seen[h]}")
+            continue
+        seen[h] = p.name
+        unique.append(p)
+    files = unique
     recs, lib = [], None
     n = max(len(files), 1)
     for i, p in enumerate(files):
@@ -168,6 +179,8 @@ def _assemble(folder: Path, data: Path, recs: list, files: list, complete: bool)
         for q in r["questions"]:
             q = dict(q)
             q["key"] = q["qid"] or f"{stem}#{q['qno']}"
+            if q.get("group_id") and not q.get("qid"):      # passage groups: unique per paper
+                q["group_id"] = f"{stem}#{q['group_id']}"
             q["source_file"] = r["file"]
             q["source_path"] = r["path"]
             q["session"] = (r.get("session") or {}).get("label") or stem

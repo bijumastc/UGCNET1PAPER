@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from . import llm
+from . import websearch as WS
 from .learn import primer
 from .store import IST, now_iso
 from .syllabus import UNITS, subtopic_name, unit_label, unit_name
@@ -35,7 +36,26 @@ def _limit(C) -> int:
     return int(float(C.store.get("class:ai_daily_limit", 30)))
 
 
-def _ask(C, cfg, messages, unit, topic, kind, question) -> str | None:
+def web_results(C, unit, topic, query) -> list[dict]:
+    """Look the facts up (Tavily) for fact-based topics. Never blocks the answer if search fails."""
+    if not WS.enabled(C.secrets, C.store) or not WS.needs_facts(unit, subtopic_name(topic) if topic else ""):
+        return []
+    try:
+        with st.spinner("🔎 Checking the facts on trusted websites…"):
+            return WS.search(C.store, WS.api_key(C.secrets, C.store), query)
+    except WS.SearchError as e:
+        if C.user["role"] != "student":
+            st.caption(f"Web check skipped: {e}")
+        return []
+
+
+def _show_sources(results):
+    if results:
+        with st.expander(f"📚 Sources checked ({len(results)})"):
+            st.markdown(WS.sources_md(results))
+
+
+def _ask(C, cfg, messages, unit, topic, kind, question, sources=None) -> str | None:
     if C.user["role"] == "student" and _today_used(C) >= _limit(C):
         st.warning(f"You've used today's {_limit(C)} AI questions. 🙂 They reset tomorrow. Meanwhile, Practice and "
                    "the Learn cards are unlimited!")
@@ -50,7 +70,8 @@ def _ask(C, cfg, messages, unit, topic, kind, question) -> str | None:
         return None
     C.store.add_ai_log({"time": now_iso(), "student_id": C.user["id"], "unit": unit, "topic": topic, "kind": kind,
                         "question": question[:1000], "reply_chars": len(reply), "reply": reply[:5000],
-                        "model": cfg.get("used", "")})
+                        "model": cfg.get("used", ""),
+                        "sources": " ".join(r["url"] for r in (sources or []))})
     return reply
 
 
@@ -88,6 +109,7 @@ def page_tutor(C):
     for m in hist:
         with st.chat_message(m["role"], avatar="🧑‍🎓" if m["role"] == "user" else "🤖"):
             st.markdown(m["content"])
+            _show_sources(m.get("sources"))
             if m.get("by") and C.user["role"] != "student":
                 st.caption(f"answered by {m['by']}")
     typed = st.chat_input(f"Ask about {subtopic_name(sid)}…")
@@ -96,12 +118,16 @@ def page_tutor(C):
         hist.append({"role": "user", "content": asked})
         with st.chat_message("user", avatar="🧑‍🎓"):
             st.markdown(asked)
-        msgs = system + [{"role": m["role"], "content": m["content"]} for m in hist[-8:]]   # short history: fits free token limits
-        reply = _ask(C, cfg, msgs, uid, sid, "chat", asked)
+        query = (f"{asked} ({subtopic_name(sid)})" if typed else f"{subtopic_name(sid)} {unit_name(uid)} UGC NET")
+        found = web_results(C, uid, sid, query)
+        web = [{"role": "system", "content": WS.context_message(found)}] if found else []
+        msgs = system + web + [{"role": m["role"], "content": m["content"]} for m in hist[-8:]]   # short history
+        reply = _ask(C, cfg, msgs, uid, sid, "chat", asked, found)
         if reply:
-            hist.append({"role": "assistant", "content": reply, "by": cfg.get("used", "")})
+            hist.append({"role": "assistant", "content": reply, "by": cfg.get("used", ""), "sources": found})
             with st.chat_message("assistant", avatar="🤖"):
                 st.markdown(reply)
+                _show_sources(found)
                 if C.user["role"] != "student":
                     st.caption(f"answered by {cfg.get('used', '')}")
         else:
@@ -118,13 +144,19 @@ def explain_button(C, q, chosen):
         return
     k = f"aiexp_{q['key']}"
     if k not in ss and st.button("🤖 Explain this with the AI tutor"):
-        msgs = [{"role": "system", "content": llm.TUTOR_SYSTEM},
-                {"role": "user", "content": llm.explain_question_prompt(q, chosen)}]
-        reply = _ask(C, cfg, msgs, q.get("unit"), q.get("subtopic"), "explain", q["text"][:200])
+        opts = q.get("options") or []
+        right = opts[q["answer"]] if len(opts) == 4 and q.get("answer") is not None else ""
+        found = web_results(C, q.get("unit"), q.get("subtopic"), " ".join(q["text"].split())[:250] + " " + str(right))
+        msgs = [{"role": "system", "content": llm.TUTOR_SYSTEM}] + \
+            ([{"role": "system", "content": WS.context_message(found)}] if found else []) + \
+            [{"role": "user", "content": llm.explain_question_prompt(q, chosen)}]
+        reply = _ask(C, cfg, msgs, q.get("unit"), q.get("subtopic"), "explain", q["text"][:200], found)
         if reply:
-            ss[k] = reply
+            ss[k] = (reply, found)
     if k in ss:
-        st.info("🤖 **AI tutor** (may contain mistakes; the official answer above is what counts)\n\n" + ss[k])
+        reply, found = ss[k] if isinstance(ss[k], tuple) else (ss[k], [])
+        st.info("🤖 **AI tutor** (may contain mistakes; the official answer above is what counts)\n\n" + reply)
+        _show_sources(found)
 
 
 def tutor_usage_table(C):
