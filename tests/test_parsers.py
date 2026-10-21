@@ -128,3 +128,73 @@ def test_failed_read_is_retried(tmp_path, monkeypatch):
     rec = L.extract_file(pdf, cache)
     assert calls and "still broken" in rec["error"]                      # tried again, not the old error
     assert not (cache / f"{L._sha(pdf)}_v{L.PARSER_VERSION}.json").exists()   # the old failure is forgotten
+
+
+def _lines(text):
+    return [(1, l) for l in text.strip().splitlines()]
+
+
+def test_passage_with_answers_and_explanations():
+    from p1.extract import parse_generic
+
+    text = """Q25. Which of the following is a primary source of data?
+(1) Census report (2) Textbook (3) Encyclopaedia (4) Review article
+Answer: (1)
+Explanation: A census report is collected first-hand.
+Read the following passage and answer the questions 26-28:
+The river had always shaped the town. Farmers depended on its floods,
+and traders on its calm months. When the dam came, both changed.
+Q26. What shaped the town?
+(1) The river (2) The dam (3) Traders (4) Farmers
+Answer: (1)
+Explanation: Stated in line one.
+Q27. Who depended on the floods?
+(1) Traders (2) Farmers (3) Engineers (4) Teachers
+Answer: (2)
+Q28. What changed both groups?
+(1) Rain (2) Floods (3) The dam (4) Trade
+Answer: (3)
+Q29. Which of these is an input device?
+(1) Monitor (2) Printer (3) Keyboard (4) Speaker
+Answer: (3)"""
+    qs, _ = parse_generic(_lines(text))
+    by = {q.qno: q for q in qs}
+    assert [q.qno for q in qs] == [25, 26, 27, 28, 29]
+    assert "river had always shaped" in by[26].group_text and by[26].group_id == by[28].group_id
+    assert by[27].group_text == by[26].group_text
+    assert not by[29].group_text and not by[25].group_text
+    assert "river" not in (by[25].explanation or "") and "river" not in by[25].options[3]
+    assert by[27].inline_answer == 1
+
+
+def test_passage_without_range_and_no_answers():
+    from p1.extract import parse_generic
+
+    text = """24. Which is NOT a feature of action research?
+(1) Cyclic (2) Participative (3) Context-bound (4) Universal laws
+Passage
+Values education aims to build character. Schools play a central role,
+but families and communities matter just as much.
+25. What does values education aim to build?
+(1) Wealth (2) Character (3) Speed (4) Memory
+26. According to the passage, which of the following plays a central role in it?
+(1) Schools (2) Banks (3) Courts (4) Markets"""
+    qs, _ = parse_generic(_lines(text))
+    by = {q.qno: q for q in qs}
+    assert "Values education" in by[25].group_text and by[26].group_text == by[25].group_text
+    assert "Values" not in by[24].options[3] and not by[24].group_text
+
+
+def test_explanation_mentioning_a_table_is_not_a_passage():
+    from p1.extract import parse_generic
+
+    text = """Q5. The median of 2, 4, 6, 8, 10 is:
+(1) 4 (2) 6 (3) 8 (4) 5
+Answer: (2)
+Explanation: Arrange the data in order.
+Refer to the values: the middle one is 6.
+Q6. What is 3 x 4?
+(1) 7 (2) 12 (3) 34 (4) 1
+Answer: (2)"""
+    qs, _ = parse_generic(_lines(text))
+    assert [q.qno for q in qs] == [5, 6] and not qs[1].group_text
